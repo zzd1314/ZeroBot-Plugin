@@ -1,4 +1,4 @@
-// Package servicemenu 服务菜单：自检图同款毛玻璃 UI + 主题切换 + 优雅重载
+// Package servicemenu 服务菜单：自检图同款毛玻璃 UI + 主题切换 + 用法卡横竖屏切换
 package servicemenu
 
 import (
@@ -14,12 +14,9 @@ import (
 	"math"
 	"math/rand"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/FloatTech/gg"
 	zbpctrl "github.com/FloatTech/zbpctrl"
@@ -228,21 +225,8 @@ func init() {
 			ctx.SendChain(message.ImageBytes(img))
 		})
 
-	zero.OnRegex(`^(菜单用法|menuusage)\s+(\S+)$`).SetBlock(true).FirstPriority().
-		Handle(func(ctx *zero.Ctx) {
-			name := strings.ToLower(ctx.State["regex_matched"].([]string)[2])
-			m, ok := control.Lookup(name)
-			if !ok {
-				ctx.SendChain(message.Text("没有找到插件: ", name))
-				return
-			}
-			img, err := renderUsageCard(m)
-			if err != nil {
-				ctx.SendChain(message.Text("渲染失败: ", err))
-				return
-			}
-			ctx.SendChain(message.ImageBytes(img))
-		})
+	// 「/用法 <英文名>」命令在 usage.go 中注册（兼容 /用法、用法、
+	// 全角空格、无空格与旧命令名 菜单用法/menuusage）
 
 	zero.OnRegex(`^主题\s+(\S+)$`).SetBlock(true).FirstPriority().
 		Handle(func(ctx *zero.Ctx) {
@@ -293,24 +277,23 @@ func init() {
 			ctx.SendChain(message.Text("🎨 UI 已切换为 [", itoa(n), "] ", currentTheme.DisplayName))
 		})
 
-	zero.OnFullMatchGroup([]string{"重载全部", "reloadall", "重载bot"}, zero.SuperUserPermission).SetBlock(true).FirstPriority().
+	// ===== 用法卡样式切换：横屏 / 竖屏 =====
+	zero.OnFullMatchGroup([]string{"切换用法横屏", "用法横屏"}).SetBlock(true).FirstPriority().
 		Handle(func(ctx *zero.Ctx) {
-			ctx.SendChain(message.Text("收到重载命令，正在重启进程..."))
-			go gracefulRestart()
+			usageLandscape = true
+			ctx.SendChain(message.Text("用法卡已切换为横屏样式"))
 		})
 
-	zero.OnRegex(`^重载\s+(\S+)$`, zero.SuperUserPermission).SetBlock(true).FirstPriority().
+	zero.OnFullMatchGroup([]string{"切换用法竖屏", "用法竖屏"}).SetBlock(true).FirstPriority().
 		Handle(func(ctx *zero.Ctx) {
-			name := strings.ToLower(ctx.State["regex_matched"].([]string)[1])
-			_, ok := control.Lookup(name)
-			if !ok {
-				ctx.SendChain(message.Text("没找到插件: ", name))
-				return
-			}
-			ctx.SendChain(message.Text("注意: Go 编译后的插件无法单独热重载，将重启整个进程..."))
-			go gracefulRestart()
+			usageLandscape = false
+			ctx.SendChain(message.Text("用法卡已切换为竖屏样式"))
 		})
 }
+
+// usageLandscape 用法卡样式：true 横屏（1600 宽双栏），false 竖屏（1080 宽单栏）。
+// 指令「切换用法横屏 / 切换用法竖屏」切换，重启后恢复默认横屏。
+var usageLandscape = true
 
 func atoi(s string) int {
 	n := 0
@@ -343,37 +326,6 @@ func itoa(n int) string {
 		buf[i] = '-'
 	}
 	return string(buf[i:])
-}
-
-func gracefulRestart() {
-	logrus.Infoln("[servicemenu] 准备重启进程...")
-	time.Sleep(1 * time.Second)
-	exePath, err := os.Executable()
-	if err != nil {
-		logrus.Errorf("[servicemenu] 获取 exe 路径失败: %v", err)
-		os.Exit(0)
-		return
-	}
-	if runtime.GOOS == "windows" {
-		dir := exePath[:strings.LastIndex(exePath, `\`)]
-		cmd := exec.Command("cmd", "/c", "start", "/min", exePath)
-		cmd.Dir = dir
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Start(); err != nil {
-			logrus.Errorf("[servicemenu] 启动新进程失败: %v", err)
-		}
-	} else {
-		cmd := exec.Command(exePath, os.Args[1:]...)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		go func() {
-			if err := cmd.Run(); err != nil {
-				logrus.Errorf("[servicemenu] 重启进程失败: %v", err)
-			}
-		}()
-	}
-	os.Exit(0)
 }
 
 // ================ 图片渲染（和自检图同款模式）================
@@ -483,6 +435,17 @@ func renderServiceList(gid int64, page int) ([]byte, error) {
 
 	// 插件卡片（当前页）
 	cardAreaTop := headerY + headerH + cardMarginY
+	// 新插件红点：进程内只检测一次，新出现的插件自动打标
+	badgeDetectOnce.Do(func() {
+		names := make([]string, 0, len(allPlugins))
+		for _, m := range allPlugins {
+			if m != nil {
+				names = append(names, m.Service)
+			}
+		}
+		refreshBadges(names)
+	})
+	badges := badgedSet()
 	for i, m := range pagePlugins {
 		if m == nil {
 			continue
@@ -494,12 +457,12 @@ func renderServiceList(gid int64, page int) ([]byte, error) {
 		cardTop := float64(cardAreaTop) + float64(row)*(itemH+cardMarginY)
 		enabled := m.IsEnabledIn(gid)
 		drawNewCard(c, int(x), int(cardTop), cardW, itemH, blurback, t)
-		drawPluginCardContent(c, int(x), int(cardTop), cardW, itemH, m.Service, m.Options.Brief, enabled, t)
+		drawPluginCardContent(c, int(x), int(cardTop), cardW, itemH, m.Service, m.Options.Brief, enabled, badges[m.Service], t)
 	}
 
 	// Footer
 	footerY := canvasH - cardPadding + 10
-	drawTextOutlined(c, "服务列表 [1/2]  |  menu <编号>  |  主题 <名>  |  重载全部  |  用法 <英文名>", secFont, 16, float64(cardPadding), float64(footerY), t.TextSec)
+	drawTextOutlined(c, "服务列表 [1/2]  |  menu <编号>  |  主题 <名>  |  用法 <英文名>  |  清除红点 [插件名]", secFont, 16, float64(cardPadding), float64(footerY), t.TextSec)
 
 	return encodePNG(c.Image())
 }
@@ -783,6 +746,56 @@ func ellipsizeByWidth(c *gg.Context, text, fontPath string, size, maxW float64) 
 	return string(runes[:lo]) + ell
 }
 
+// wrapByWidth 按像素宽度把文本折成最多 maxLines 行（rune 安全，二分找断点）。
+// ASCII 单词尽量不从中间断开；末行仍放不下的部分以省略号结尾。
+func wrapByWidth(c *gg.Context, text, fontPath string, size, maxW float64, maxLines int) []string {
+	loadFont(c, fontPath, size)
+	if tw, _ := c.MeasureString(text); tw <= maxW {
+		return []string{text}
+	}
+	runes := []rune(text)
+	isWordByte := func(r rune) bool {
+		return r >= '0' && r <= '9' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r == '_' || r == '-'
+	}
+	lines := make([]string, 0, maxLines)
+	start := 0
+	for start < len(runes) && len(lines) < maxLines {
+		rest := runes[start:]
+		if maxLines-len(lines) == 1 { // 末行仍放不下：省略号截断
+			lines = append(lines, ellipsizeByWidth(c, string(rest), fontPath, size, maxW))
+			return lines
+		}
+		lo, hi := 0, len(rest)
+		for lo < hi { // 二分找本行能容纳的最长前缀
+			mid := (lo + hi + 1) / 2
+			if w, _ := c.MeasureString(string(rest[:mid])); w <= maxW {
+				lo = mid
+			} else {
+				hi = mid - 1
+			}
+		}
+		if lo == 0 {
+			lo = 1 // 单个 rune 都超宽也要推进，防死循环
+		}
+		// 命中 ASCII 单词中间时回退到词首，避免 "AnimeTrac/e" 式断行
+		if lo < len(rest) && isWordByte(rest[lo-1]) && isWordByte(rest[lo]) {
+			ws := lo - 1
+			for ws > 0 && isWordByte(rest[ws-1]) {
+				ws--
+			}
+			if ws > 0 {
+				lo = ws
+			}
+		}
+		lines = append(lines, strings.TrimRight(string(rest[:lo]), " "))
+		start += lo
+		for start < len(runes) && runes[start] == ' ' { // 剥掉折行后的行首空格
+			start++
+		}
+	}
+	return lines
+}
+
 // drawTextOutlined 带黑色描边绘制文字。FloatTech/gg 的 Stroke 在曲线
 // 字形上会写入垃圾像素（圆角黑弧同源 bug），因此用多向偏移暗色底绘
 // 模拟描边再绘主体：1px 实描边 + 1.8px 淡晕两层，保证白字在奶白玻璃上远看清晰。
@@ -806,7 +819,116 @@ func drawTextOutlined(c *gg.Context, text, fontPath string, size float64, x, y f
 	c.DrawString(text, x, y)
 }
 
-func drawPluginCardContent(c *gg.Context, x, y, w, h int, name, brief string, enabled bool, t theme) {
+// ===== 插件图标（纯矢量绘制，无外部图片依赖）=====
+
+// iconSize 图标圆角方形边长
+const iconSize = 38.0
+
+// iconPainters 特定插件的矢量图标（白色字形，圆心在 cx,cy）。
+// 注意：FloatTech/gg 的 Stroke 在圆角/曲线段会写入垃圾像素（见 drawNewCard 注释），
+// 因此字形只能用直线段（MoveTo/LineTo）与填充（圆/三角），不能用圆角矩形描边。
+var iconPainters = map[string]func(c *gg.Context, cx, cy float64){
+	"hyperv":  drawMonitorIcon,
+	"splayer": drawNoteIcon,
+}
+
+// iconPalette 图标底色盘（柔和 iOS 系统色），按插件名哈希取色保证每次渲染稳定
+var iconPalette = [8][3]uint8{
+	{90, 141, 239},  // 蓝
+	{155, 109, 243}, // 紫
+	{47, 184, 166},  // 青
+	{242, 153, 74},  // 橙
+	{236, 100, 110}, // 粉红
+	{86, 204, 242},  // 天蓝
+	{110, 193, 109}, // 绿
+	{241, 169, 62},  // 琥珀
+}
+
+// iconColor 按插件名哈希从色盘取底色
+func iconColor(name string) color.RGBA {
+	h := 0
+	for _, r := range name {
+		h = h*31 + int(r)
+	}
+	if h < 0 {
+		h = -h
+	}
+	c := iconPalette[h%len(iconPalette)]
+	return color.RGBA{R: c[0], G: c[1], B: c[2], A: 255}
+}
+
+// drawPluginIcon 在 (x,y) 处绘制插件图标：圆角方形底 + 白色字形。
+// 无专属图标的插件用名称首字母头像（通讯录风格）。
+func drawPluginIcon(c *gg.Context, x, y float64, name string) {
+	c.SetColor(iconColor(name))
+	c.DrawRoundedRectangle(x, y, iconSize, iconSize, 11)
+	c.Fill()
+
+	cx, cy := x+iconSize/2, y+iconSize/2
+	if fn, ok := iconPainters[strings.ToLower(name)]; ok {
+		fn(c, cx, cy)
+		return
+	}
+	// 首字母头像
+	label := strings.ToUpper(string([]rune(name)[0]))
+	loadFont(c, "data/Font/GlowSansSC-Normal-ExtraBold.ttf", 20)
+	tw, _ := c.MeasureString(label)
+	c.SetColor(color.RGBA{R: 255, G: 255, B: 255, A: 255})
+	c.DrawString(label, cx-tw/2, cy+7)
+}
+
+// drawMonitorIcon 显示器图标（hyperv）：矩形屏幕 + 支架 + 底座，纯直线段
+func drawMonitorIcon(c *gg.Context, cx, cy float64) {
+	c.SetStrokeStyle(gg.NewSolidPattern(color.RGBA{R: 255, G: 255, B: 255, A: 255}))
+	c.SetLineWidth(2.4)
+	c.SetLineCap(gg.LineCapRound)
+	// 屏幕（矩形四边，不用圆角矩形描边——gg 曲线描边有垃圾像素 bug）
+	c.MoveTo(cx-10, cy-9)
+	c.LineTo(cx+10, cy-9)
+	c.LineTo(cx+10, cy+4)
+	c.LineTo(cx-10, cy+4)
+	c.LineTo(cx-10, cy-9)
+	c.Stroke()
+	// 支架 + 底座
+	c.MoveTo(cx, cy+4)
+	c.LineTo(cx, cy+9)
+	c.Stroke()
+	c.MoveTo(cx-6, cy+9)
+	c.LineTo(cx+6, cy+9)
+	c.Stroke()
+}
+
+// drawNoteIcon 音符图标（splayer）：填充符头 + 符干 + 符尾，直线段 + 填充
+func drawNoteIcon(c *gg.Context, cx, cy float64) {
+	c.SetColor(color.RGBA{R: 255, G: 255, B: 255, A: 255})
+	// 符头
+	c.DrawCircle(cx-4, cy+6, 4)
+	c.Fill()
+	// 符干 + 符尾
+	c.SetStrokeStyle(gg.NewSolidPattern(color.RGBA{R: 255, G: 255, B: 255, A: 255}))
+	c.SetLineWidth(2.4)
+	c.SetLineCap(gg.LineCapRound)
+	c.MoveTo(cx-0.8, cy+6)
+	c.LineTo(cx-0.8, cy-9)
+	c.LineTo(cx+6, cy-5)
+	c.Stroke()
+}
+
+// drawBadgeDot 新插件红点（类手机 app 角标）：白色外环 + iOS 红圆点。
+// 固定画在卡片右上角 (cx,cy)，纯 Fill 无 Stroke（规避 gg 描边 bug）。
+// 注意：填充色必须不透明——gg 对 α<255 的 SolidPattern 做 α 反缩放时
+// R=255 会溢出回绕成垃圾色（实测 255,59,48,250 → 1,64,53）；
+// 尺寸相对卡片固定，任意分辨率下渲染一致。
+func drawBadgeDot(c *gg.Context, cx, cy float64) {
+	c.SetColor(color.RGBA{R: 255, G: 255, B: 255, A: 255})
+	c.DrawCircle(cx, cy, 13)
+	c.Fill()
+	c.SetColor(color.RGBA{R: 255, G: 59, B: 48, A: 255})
+	c.DrawCircle(cx, cy, 10.5)
+	c.Fill()
+}
+
+func drawPluginCardContent(c *gg.Context, x, y, w, h int, name, brief string, enabled, hasBadge bool, t theme) {
 	// 状态色条
 	if enabled {
 		c.SetRGBA255(136, 178, 0, 255)
@@ -817,19 +939,35 @@ func drawPluginCardContent(c *gg.Context, x, y, w, h int, name, brief string, en
 	c.Fill()
 
 	const (
-		nameFont      = "data/Font/GlowSansSC-Normal-ExtraBold.ttf"
-		briefFont     = "data/Font/regular-bold.ttf"
-		nameBaseline  = 55 // 按 itemH=120 视觉居中：文本块上下各留约 30px
-		briefBaseline = 89
+		nameFont     = "data/Font/GlowSansSC-Normal-ExtraBold.ttf"
+		briefFont    = "data/Font/regular-bold.ttf"
+		nameBaseline = 50 // 名字上移，给两行简介让位
+		nameSize     = 32.0
+		briefSize    = 20.0
+		briefLine1   = 80  // 两行简介首行基线
+		briefLine2   = 106 // 次行基线（卡高 120，底部留 ~14px）
+		briefSingle  = 93  // 单行简介时垂直居中于简介区
+		textLeft     = 76  // 图标 22 + 38 + 间隙 16
 	)
 
-	// 插件名（黑色描边，远看清晰）
-	drawTextOutlined(c, name, nameFont, 32, float64(x)+30, float64(y+nameBaseline), t.TextMain)
+	// 插件图标（垂直居中于卡片左区）
+	drawPluginIcon(c, float64(x)+22, float64(y)+float64(h)/2-iconSize/2, name)
 
-	// Brief：按实际像素宽度省略，右侧留出状态徽章区（圆徽 28 + 边距 16 + 间隙 10）
-	availW := float64(w) - 30 - 54
-	brief = ellipsizeByWidth(c, brief, briefFont, 22, availW)
-	drawTextOutlined(c, brief, briefFont, 22, float64(x)+30, float64(y+briefBaseline), t.TextSec)
+	// 文本可用宽度：图标区右侧 + 状态徽章区（圆徽 28 + 边距 16 + 间隙 10）
+	availW := float64(w) - textLeft - 54
+
+	// 插件名（黑色描边，远看清晰；超宽按像素省略）
+	nameText := ellipsizeByWidth(c, name, nameFont, nameSize, availW)
+	drawTextOutlined(c, nameText, nameFont, nameSize, float64(x)+textLeft, float64(y+nameBaseline), t.TextMain)
+
+	// Brief：最多两行按像素宽度折行，只有折满两行仍放不下才在末行省略
+	briefLines := wrapByWidth(c, brief, briefFont, briefSize, availW, 2)
+	if len(briefLines) == 1 {
+		drawTextOutlined(c, briefLines[0], briefFont, briefSize, float64(x)+textLeft, float64(y+briefSingle), t.TextSec)
+	} else {
+		drawTextOutlined(c, briefLines[0], briefFont, briefSize, float64(x)+textLeft, float64(y+briefLine1), t.TextSec)
+		drawTextOutlined(c, briefLines[1], briefFont, briefSize, float64(x)+textLeft, float64(y+briefLine2), t.TextSec)
+	}
 
 	// 状态徽章：右侧圆点 + 矢量勾/叉（✓/✗ 在 GlowSansSC 无字形，DrawString
 	// 永远渲染不出来，改用直线段绘制图标，必然渲染且远看清晰）
@@ -862,6 +1000,11 @@ func drawPluginCardContent(c *gg.Context, x, y, w, h int, name, brief string, en
 		c.LineTo(cx-0.30*r, cy+0.30*r)
 		c.Stroke()
 	}
+
+	// 新插件红点：卡片右上角（外环压过卡片边缘，呈 app 角标悬浮感）
+	if hasBadge {
+		drawBadgeDot(c, float64(x+w)-10, float64(y)+10)
+	}
 }
 
 // buildBackground 构建主题渐变 + 随机本地图（cover 模式）
@@ -893,51 +1036,301 @@ func buildBackground(w, h int, t theme) *image.RGBA {
 }
 
 func renderUsageCard(m *zbpctrl.Control[*zero.Ctx]) ([]byte, error) {
-	t := currentTheme
-	cardW := 900
-	headerH := 110
+	const (
+		padX      = 44.0  // 左右留白
+		titleSize = 64.0  // 插件名大字
+		textSize  = 30.0  // 正文条目
+		lineH     = 46.0  // 条目行高
+		secRowH   = 54.0  // 分区标题行高
+		secGap    = 18.0  // 分区间距
+		topH      = 236.0 // 标题区高度（正文起始 y）
+		bottomPad = 44.0
+		fontEB    = "data/Font/GlowSansSC-Normal-ExtraBold.ttf"
+		fontReg   = "data/Font/regular-bold.ttf"
+	)
 
-	help := m.Options.Help
-	if help == "" {
-		help = "该插件无帮助文档。"
+	// 横竖屏布局参数：
+	// 横屏 1600 宽双栏（正文单栏过高时按半高切分保持横屏长方形），
+	// 竖屏 1080 宽单栏（手机比例，高度下限更大）
+	var cardW, colGap, singleMaxH, minH float64
+	artFitW := 640 // 右侧立绘适配宽
+	if usageLandscape {
+		cardW, colGap, singleMaxH, minH = 1600, 40, 440, 654
+	} else {
+		cardW, colGap, singleMaxH, minH = 1080, 40, 1<<30, 1500
+		artFitW = 620
 	}
-	lines := strings.Count(help, "\n") + 1
-	lineH := 28
-	bodyH := lines*lineH + 60
-	cardH := cardPadding + headerH + bodyH + cardPadding
 
-	c := gg.NewContext(cardW, cardH)
-	bg := buildBackground(cardW, cardH, t)
-	c.DrawImage(bg, 0, 0)
-
-	if t.OverlayAlpha > 0 {
-		oc := t.OverlayColor
-		c.SetRGBA255(int(oc.R), int(oc.G), int(oc.B), int(t.OverlayAlpha))
-		c.DrawRectangle(0, 0, float64(cardW), float64(cardH))
-		c.Fill()
+	// 原始正文单元：优先详细用法四分区，未收录回退 Brief + Help
+	type rawCell struct {
+		header bool
+		text   string
+	}
+	var raws []rawCell
+	if sections, ok := usageDetails[strings.ToLower(m.Service)]; ok {
+		for _, s := range sections {
+			raws = append(raws, rawCell{header: true, text: s.Title})
+			for _, ln := range strings.Split(s.Body, "\n") {
+				raws = append(raws, rawCell{text: ln})
+			}
+		}
+	} else {
+		help := m.Options.Help
+		if help == "" {
+			help = "该插件无帮助文档。"
+		}
+		for _, ln := range strings.Split(help, "\n") {
+			raws = append(raws, rawCell{text: ln})
+		}
 	}
 
-	blurback := toRGBA(imaging.Blur(c.Image(), t.Blur))
-
-	drawNewCard(c, cardPadding, cardPadding, cardW-cardPadding*2, headerH, blurback, t)
-	c.SetColor(t.TextMain)
-	loadFont(c, "data/Font/GlowSansSC-Normal-ExtraBold.ttf", 48)
-	c.DrawString(m.Service, float64(cardPadding+32), float64(cardPadding+60))
-
-	c.SetColor(t.TextSec)
-	loadFont(c, "data/Font/regular-bold.ttf", 18)
-	c.DrawString(m.Options.Brief, float64(cardPadding+32), float64(cardPadding+90))
-
-	bodyY := cardPadding + headerH + cardMarginY
-	drawNewCard(c, cardPadding, bodyY, cardW-cardPadding*2, bodyH, blurback, t)
-	c.SetColor(t.TextMain)
-	loadFont(c, "data/Font/regular-bold.ttf", 16)
-	y := float64(bodyY) + 36
-	for _, line := range strings.Split(help, "\n") {
-		c.DrawString(line, float64(cardPadding+28), y)
-		y += float64(lineH)
+	// 按指定宽度折行成渲染单元（像素测量，rune 安全）
+	type bodyCell struct {
+		header bool
+		title  string
+		lines  []string
 	}
+	mc := gg.NewContext(10, 10)
+	colW := (cardW - padX*2 - colGap) / 2 // 双栏栏宽（正文全宽，可直接盖住立绘）
+	singleW := cardW - padX*2             // 单栏正文宽
+	wrap := func(width float64) (cells []bodyCell) {
+		for _, r := range raws {
+			if r.header {
+				cells = append(cells, bodyCell{header: true, title: r.text})
+			} else {
+				// 双栏栏宽较窄，行数上限放宽到 8 避免正文被截断
+				cells = append(cells, bodyCell{lines: wrapByWidth(mc, r.text, fontReg, textSize, width, 8)})
+			}
+		}
+		return
+	}
+	cellH := func(cells []bodyCell) float64 {
+		h := 0.0
+		for i, c := range cells {
+			if c.header {
+				h += secRowH
+				if i > 0 {
+					h += secGap
+				}
+			} else {
+				h += float64(len(c.lines)) * lineH
+			}
+		}
+		return h
+	}
+
+	// 单栏正文过高则分双栏（贪心按半高切分），避免卡高逼近卡宽呈正方形
+	cells := wrap(singleW)
+	cols := [][]bodyCell{cells}
+	if cellH(cells) > singleMaxH {
+		two := wrap(colW)
+		total := cellH(two)
+		acc := 0.0
+		split := len(two) - 1
+		for i, c := range two {
+			if c.header {
+				acc += secRowH
+				if i > 0 {
+					acc += secGap
+				}
+			} else {
+				acc += float64(len(c.lines)) * lineH
+			}
+			if acc >= total/2 {
+				split = i
+				break
+			}
+		}
+		if split < 1 {
+			split = 1
+		}
+		cols = [][]bodyCell{two[:split], two[split:]}
+	}
+
+	colH := 0.0
+	for _, col := range cols {
+		if h := cellH(col); h > colH {
+			colH = h
+		}
+	}
+	cardH := int(topH + colH + bottomPad)
+	if cardH < int(minH) { // 高度下限：横屏 654（参考图比例）/ 竖屏 1500（手机比例）
+		cardH = int(minH)
+	}
+
+	c := gg.NewContext(int(cardW), cardH)
+
+	// === 第 1 层：背景（henpin 横向图 + 白色 overlay；无图回退纯白底）===
+	drawUsageBg(c, int(cardW), cardH)
+
+	// === 第 2 层：人物立绘（右侧、贴底、带投影分离背景）===
+	drawUsageArt(c, int(cardW), cardH, artFitW)
+
+	// === 第 3 层：全部文字压在立绘之上，正文不必避让、观感不挤 ===
+
+	// 左上标题块：插件名大字 + 绿色下划线简介 ===
+	black := color.RGBA{R: 20, G: 21, B: 24, A: 255}
+	c.SetColor(black)
+	loadFont(c, fontEB, titleSize)
+	c.DrawString(m.Service, padX, 108)
+	if m.Options.Brief != "" {
+		loadFont(c, fontEB, 30)
+		c.SetRGBA255(104, 166, 0, 255)
+		c.DrawString(m.Options.Brief, padX, 154)
+		if tw, _ := c.MeasureString(m.Options.Brief); tw > 0 {
+			c.DrawRectangle(padX, 164, tw, 6)
+			c.Fill()
+		}
+	}
+
+	// === 右上角标识：FloatTech / ZeroBot-Plugin ===
+	loadFont(c, fontEB, 36)
+	c.SetColor(black)
+	for i, ln := range [...]string{"FloatTech", "ZeroBot-Plugin"} {
+		if tw, _ := c.MeasureString(ln); tw > 0 {
+			c.DrawString(ln, cardW-padX-tw, float64(70+46*i))
+		}
+	}
+
+	// === 正文（单栏或双栏；条目首行加 "- " 前缀与参考图一致，折行续行顶格）===
+	for ci, col := range cols {
+		x := padX
+		if ci > 0 {
+			x = padX + colW + colGap
+		}
+		y := topH
+		for i, cell := range col {
+			if cell.header {
+				if i > 0 {
+					y += secGap
+				}
+				loadFont(c, fontEB, 34)
+				c.SetColor(black)
+				c.DrawString(cell.title, x, y)
+				y += secRowH
+			} else {
+				loadFont(c, fontReg, textSize)
+				c.SetColor(black)
+				for li, ln := range cell.lines {
+					if li == 0 && !strings.HasPrefix(ln, "-") { // Help 自带条目前缀时避免 "- -"
+						c.DrawString("- "+ln, x, y)
+					} else {
+						c.DrawString(ln, x, y)
+					}
+					y += lineH
+				}
+			}
+		}
+	}
+
 	return encodePNG(c.Image())
+}
+
+// drawUsageBg 用法卡背景：横屏取 data/aifalse/henpin 横向图，竖屏取自检图
+// 目录 data/aifalse 的竖向图（无匹配定向时回退该目录任意图），imaging.Fill
+// 铺满整卡，再叠白色高透 overlay 保证黑色正文可读；目录为空或无文件时
+// 回退纯白底（参考图原始风格）。
+func drawUsageBg(c *gg.Context, w, h int) {
+	dir, portrait := "data/aifalse/henpin", false
+	if !usageLandscape {
+		dir, portrait = bgDataDir, true
+	}
+	if bg := loadUsageBg(dir, portrait); bg != nil {
+		c.DrawImage(imaging.Fill(bg, w, h, imaging.Center, imaging.Lanczos), 0, 0)
+		c.SetRGBA255(255, 255, 255, 216)
+	} else {
+		c.SetRGBA255(255, 255, 255, 255)
+	}
+	c.DrawRectangle(0, 0, float64(w), float64(h))
+	c.Fill()
+}
+
+// loadUsageBg 扫描目录随机返回一张图：优先匹配定向（portrait=true 要竖图，
+// false 要横图），先用 DecodeConfig 只读文件头筛选（开销小），再随机选一张
+// 完整解码；无匹配定向图时回退目录内任意可解码图，目录不存在或为空返回 nil
+func loadUsageBg(dir string, portrait bool) image.Image {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var matched, all []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		p := dir + "/" + e.Name()
+		f, err := os.Open(p)
+		if err != nil {
+			continue
+		}
+		cfg, _, err := image.DecodeConfig(f)
+		f.Close()
+		if err != nil {
+			continue
+		}
+		all = append(all, p)
+		if (portrait && cfg.Height > cfg.Width) || (!portrait && cfg.Width >= cfg.Height) {
+			matched = append(matched, p)
+		}
+	}
+	pool := matched
+	if len(pool) == 0 {
+		pool = all
+	}
+	for len(pool) > 0 { // 随机选一张，解码失败顺延剩余
+		i := rand.Intn(len(pool))
+		f, err := os.Open(pool[i])
+		if err != nil {
+			pool = append(pool[:i], pool[i+1:]...)
+			continue
+		}
+		img, _, err := image.Decode(f)
+		f.Close()
+		if err != nil {
+			logrus.Warnf("[servicemenu] 解码用法卡背景失败 %s: %v", pool[i], err)
+			pool = append(pool[:i], pool[i+1:]...)
+			continue
+		}
+		return img
+	}
+	return nil
+}
+
+// drawUsageArt 用法卡右侧人物立绘（data/control/kanban.png，透明底）：
+// 先裁掉画布两侧大量透明区，再按 fitW×卡高盒适配（保持比例），右下对齐；
+// 带投影剪影与背景分离。资源缺失或解码失败时跳过（优雅降级）。
+func drawUsageArt(c *gg.Context, cardW, cardH, fitW int) {
+	f, err := os.Open("data/control/kanban.png")
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	art, _, err := image.Decode(f)
+	if err != nil {
+		logrus.Warn("[servicemenu] 解码人物立绘失败:", err)
+		return
+	}
+	// 1440x1440 方形画布两侧透明区约占 1/3，裁剪后再适配避免立绘偏小
+	if b := art.Bounds(); b.Dx() > 1150 {
+		art = imaging.CropAnchor(art, 1150, b.Dy(), imaging.Center)
+	}
+	art = imaging.Fit(art, fitW, cardH-8, imaging.Lanczos)
+	w, h := art.Bounds().Dx(), art.Bounds().Dy()
+	dst, ok := c.Image().(*image.RGBA)
+	if !ok {
+		return
+	}
+	x0, y0 := cardW-w-14, cardH-h-10
+	// 投影剪影：立绘 alpha 形状填暗色后模糊，微偏移画在本体之下
+	sil := image.NewNRGBA(art.Bounds())
+	draw.DrawMask(sil, art.Bounds(),
+		image.NewUniform(color.RGBA{R: 12, G: 14, B: 24, A: 120}),
+		image.Point{}, art, image.Point{}, draw.Src)
+	sil = imaging.Blur(sil, 9)
+	draw.DrawMask(dst, image.Rect(x0+5, y0+7, x0+5+w, y0+7+h),
+		sil, image.Point{}, nil, image.Point{}, draw.Over)
+	draw.DrawMask(dst, image.Rect(x0, y0, x0+w, y0+h),
+		art, image.Point{}, nil, image.Point{}, draw.Over)
 }
 
 func encodePNG(img image.Image) ([]byte, error) {

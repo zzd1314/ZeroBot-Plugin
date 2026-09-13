@@ -12,6 +12,9 @@ import (
 	"os"
 	"testing"
 
+	ctrl "github.com/FloatTech/zbpctrl"
+	zero "github.com/wdvxdr1123/ZeroBot"
+
 	"github.com/FloatTech/ZeroBot-Plugin/kanban/banner"
 	"github.com/FloatTech/gg"
 	"github.com/disintegration/imaging"
@@ -53,13 +56,12 @@ type fakePlugin struct{ name, brief string }
 
 func renderTestList(t *testing.T, tt theme, out string) {
 	plugins := []fakePlugin{
-		{"job", "定时指令触发器"}, {"antiabuse", "违禁词检测"}, {"chat", "基础反应, 群空调"},
-		{"chatcount", "聊天时长统计"}, {"sleepmanage", "睡眠小助手"}, {"airecord", "群应用: AI声聊"},
-		{"atri", "atri人格文本回复"}, {"manager", "群管插件"}, {"aiwife", "ai随机生成老婆"},
-		// 长简介：验证按像素宽度省略（应占满可用宽度而非提前截断）
-		{"animetrace", "AnimeTrace 动画/Galgame 截图溯源，识别番剧出处与集数"},
-		{"danbooru", "二次元图片标签查询，支持 endless 名片与同名搜索重定向"},
-		{"event", "好友申请和群聊邀请审核事件处理，自动同意或拒绝入群请求"},
+		{"hyperv", "Hyper-V 虚拟机控制台"}, {"splayer", "SPlayer-Next 播放器控制"},
+		{"job", "定时指令触发器"}, {"antiabuse", "违禁词检测"},
+		{"chat", "基础反应, 群空调"}, {"chatcount", "聊天时长统计"},
+		{"sleepmanage", "睡眠小助手"}, {"airecord", "群应用: AI声聊"},
+		{"atri", "atri人格文本回复"}, {"manager", "群管插件"},
+		{"aiwife", "ai随机生成老婆"}, {"animetrace", "AnimeTrace 动画/Galgame 截图溯源，识别番剧出处与集数"},
 	}
 	currentTheme = tt
 
@@ -86,7 +88,8 @@ func renderTestList(t *testing.T, tt theme, out string) {
 		x := float64(cardPadding) + float64(col)*float64(cardW+colGap)
 		cardTop := float64(cardAreaTop) + float64(row)*(itemH+cardMarginY)
 		drawNewCard(c, int(x), int(cardTop), cardW, itemH, blurback, tt)
-		drawPluginCardContent(c, int(x), int(cardTop), cardW, itemH, p.name, p.brief, j%4 != 3, tt)
+		// 前两个（hyperv/splayer）带红点徽章，模拟新插件标记
+		drawPluginCardContent(c, int(x), int(cardTop), cardW, itemH, p.name, p.brief, j%4 != 3, j < 2, tt)
 	}
 
 	writePNG(t, c, out)
@@ -98,6 +101,53 @@ func TestRenderListPNG(t *testing.T) {
 	}
 }
 
+// TestRenderUsageCardPNG 用法卡：splayer 走详细用法四分区，job 走 Brief+Help 回退；
+// 横屏（1600 双栏）与竖屏（1080 单栏）两种样式各出一组
+func TestRenderUsageCardPNG(t *testing.T) {
+	cases := []struct {
+		out string
+		m   *ctrl.Control[*zero.Ctx]
+	}{
+		{"usage_card_splayer.png", &ctrl.Control[*zero.Ctx]{
+			Service: "splayer",
+			Options: ctrl.Options[*zero.Ctx]{Brief: "SPlayer-Next 播放器控制"},
+		}},
+		{"usage_card_hyperv.png", &ctrl.Control[*zero.Ctx]{
+			Service: "hyperv",
+			Options: ctrl.Options[*zero.Ctx]{Brief: "Hyper-V 虚拟机控制台"},
+		}},
+		{"usage_card_job.png", &ctrl.Control[*zero.Ctx]{
+			Service: "job",
+			Options: ctrl.Options[*zero.Ctx]{
+				Brief: "定时指令触发器",
+				Help:  "- 定时指令 <time> <指令>\n- 定时列表\n- 删除定时 <序号>\n提示: 时间格式 2006-01-02 15:04:05",
+			},
+		}},
+	}
+	render := func(suffix string) {
+		for _, tc := range cases {
+			img, err := renderUsageCard(tc.m)
+			if err != nil {
+				t.Fatalf("%s 渲染失败: %v", tc.out, err)
+			}
+			out := tc.out
+			if suffix != "" {
+				out = tc.out[:len(tc.out)-4] + suffix + ".png"
+			}
+			if err := os.WriteFile(out, img, 0o644); err != nil {
+				t.Fatalf("写出失败: %v", err)
+			}
+			t.Logf("已输出 %s", out)
+		}
+	}
+	currentTheme = themes[0]
+	usageLandscape = true
+	render("") // 横屏
+	usageLandscape = false
+	render("_portrait") // 竖屏
+	usageLandscape = true
+}
+
 // TestRenderCloseupPNG 单卡放大特写：检查边缘折射 / 四角 / 颗粒感
 func TestRenderCloseupPNG(t *testing.T) {
 	tt := themes[0]
@@ -107,13 +157,13 @@ func TestRenderCloseupPNG(t *testing.T) {
 
 	// 一大一小两块玻璃
 	drawNewCard(c, 60, 60, 640, 220, blurback, tt)
-	drawPluginCardContent(c, 60, 60, 640, 220, "liquid glass", "凸透镜放大 + 边缘折射 + 色散", true, tt)
+	drawPluginCardContent(c, 60, 60, 640, 220, "liquid glass", "凸透镜放大 + 边缘折射 + 色散", true, false, tt)
 
 	drawNewCard(c, 60, 330, 300, 120, blurback, tt)
-	drawPluginCardContent(c, 60, 330, 300, 120, "job", "定时指令触发器", true, tt)
+	drawPluginCardContent(c, 60, 330, 300, 120, "job", "定时指令触发器", true, true, tt)
 
 	drawNewCard(c, 400, 330, 300, 120, blurback, tt)
-	drawPluginCardContent(c, 400, 330, 300, 120, "manager", "群管插件", false, tt)
+	drawPluginCardContent(c, 400, 330, 300, 120, "manager", "群管插件", false, false, tt)
 
 	writePNG(t, c, "glass_closeup.png")
 }
