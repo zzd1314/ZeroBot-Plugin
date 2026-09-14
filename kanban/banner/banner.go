@@ -3,7 +3,7 @@
 package banner
 
 // Version ...
-var Version = "v1.10.27"
+var Version = "v1.10.28"
 
 // Copyright ...
 var Copyright = "© 2020 - 2026 FloatTech"

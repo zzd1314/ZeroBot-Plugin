@@ -281,19 +281,48 @@ func init() {
 	zero.OnFullMatchGroup([]string{"切换用法横屏", "用法横屏"}).SetBlock(true).FirstPriority().
 		Handle(func(ctx *zero.Ctx) {
 			usageLandscape = true
-			ctx.SendChain(message.Text("用法卡已切换为横屏样式"))
+			saveUsageLandscape()
+			ctx.SendChain(message.Text("用法卡已切换为横屏样式，重启后保持"))
 		})
 
 	zero.OnFullMatchGroup([]string{"切换用法竖屏", "用法竖屏"}).SetBlock(true).FirstPriority().
 		Handle(func(ctx *zero.Ctx) {
 			usageLandscape = false
-			ctx.SendChain(message.Text("用法卡已切换为竖屏样式"))
+			saveUsageLandscape()
+			ctx.SendChain(message.Text("用法卡已切换为竖屏样式，重启后保持"))
 		})
 }
 
 // usageLandscape 用法卡样式：true 横屏（1600 宽双栏），false 竖屏（1080 宽单栏）。
-// 指令「切换用法横屏 / 切换用法竖屏」切换，重启后恢复默认横屏。
-var usageLandscape = true
+// 指令「切换用法横屏 / 切换用法竖屏」切换并持久化，重启后自动恢复上次方向。
+var usageLandscape = loadUsageLandscape()
+
+// usageLandscapeFile 用法卡方向持久化文件（1 横屏 / 0 竖屏）。
+const usageLandscapeFile = "data/servicemenu/usage_landscape"
+
+// loadUsageLandscape 读取持久化的用法卡方向，文件缺失或异常时默认横屏。
+func loadUsageLandscape() bool {
+	b, err := os.ReadFile(usageLandscapeFile)
+	if err != nil {
+		return true
+	}
+	return strings.TrimSpace(string(b)) == "1"
+}
+
+// saveUsageLandscape 保存当前用法卡方向，供下次启动恢复。
+func saveUsageLandscape() {
+	if err := os.MkdirAll(filepath.Dir(usageLandscapeFile), 0755); err != nil {
+		logrus.Warnf("[servicemenu] 保存用法卡方向失败: %v", err)
+		return
+	}
+	v := "0"
+	if usageLandscape {
+		v = "1"
+	}
+	if err := os.WriteFile(usageLandscapeFile, []byte(v), 0644); err != nil {
+		logrus.Warnf("[servicemenu] 保存用法卡方向失败: %v", err)
+	}
+}
 
 func atoi(s string) int {
 	n := 0

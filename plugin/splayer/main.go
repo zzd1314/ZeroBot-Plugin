@@ -3,6 +3,7 @@
 package splayer
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -23,7 +24,7 @@ func init() {
 		Help: "- 音乐播放 / 音乐暂停 / 音乐停止\n" +
 			"- 音乐下一曲 / 音乐上一曲\n" +
 			"- 音乐状态（封面+进度条+歌词卡片）\n" +
-			"- 音乐歌词（当前曲完整歌词）\n" +
+			"- 音乐歌词（当前曲完整歌词，合并转发逐行发送）\n" +
 			"- 音乐列表（合并转发本次会话播过的歌）\n" +
 			"- 切歌 <序号>（跳到列表第 N 首）\n" +
 			"- 音量 <0-100>\n" +
@@ -76,12 +77,12 @@ func init() {
 
 	engine.OnFullMatch("音乐歌词").SetBlock(true).
 		Handle(func(ctx *zero.Ctx) {
-			text, err := lyricText()
+			nodes, err := lyricNodes(ctx.CardOrNickName(ctx.Event.SelfID), ctx.Event.SelfID)
 			if err != nil {
 				ctx.SendChain(message.Text("操作失败: ", err.Error()))
 				return
 			}
-			ctx.SendChain(message.Text(text))
+			ctx.SendGroupForwardMessage(ctx.Event.GroupID, nodes)
 		})
 
 	engine.OnFullMatch("音乐列表").SetBlock(true).
@@ -269,58 +270,38 @@ func statusText() (string, error) {
 	return strings.TrimRight(b.String(), "\n"), nil
 }
 
-// lyricText 当前曲完整歌词，当前行前加 ▶；超长时截取当前行附近 ±30 行
-func lyricText() (string, error) {
+// lyricNodes 当前曲完整歌词合并转发节点：首条为曲名，其后每行歌词独立一条，
+// 当前行加 ▶ 标记，空行（间奏）跳过。
+func lyricNodes(nickname string, selfID int64) (message.Message, error) {
 	np, err := getNowPlaying()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if np.Track == nil {
-		return "当前没有播放中的曲目", nil
+		return nil, errors.New("当前没有播放中的曲目")
 	}
 	if !np.LyricAvailable {
-		return "当前曲目没有可用歌词", nil
+		return nil, errors.New("当前曲目没有可用歌词")
 	}
 	ld, err := getLyric()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if ld.TrackID != np.Track.ID {
-		return "歌词与当前曲目不匹配，请稍后重试", nil
+		return nil, errors.New("歌词与当前曲目不匹配，请稍后重试")
 	}
 	cur := ld.currentLine(np.Position)
-	var b strings.Builder
-	b.WriteString("♪ " + trackText(np.Track) + "\n\n")
-	// 歌词很长时只保留当前行附近窗口，避免刷屏
-	start, end := 0, len(ld.Lyric)
-	const window = 30
-	if cur >= 0 && len(ld.Lyric) > window*2+1 {
-		start = cur - window
-		if start < 0 {
-			start = 0
+	nodes := make(message.Message, 0, len(ld.Lyric)+1)
+	nodes = append(nodes, message.CustomNode(nickname, selfID, "♪ "+trackText(np.Track)))
+	for i := range ld.Lyric {
+		line := strings.TrimSpace(strings.ReplaceAll(ld.Lyric[i].lineText(), "\n", " / "))
+		if line == "" {
+			continue
 		}
-		end = cur + window + 1
-		if end > len(ld.Lyric) {
-			end = len(ld.Lyric)
-		}
-		if start > 0 {
-			b.WriteString("……\n")
-		}
-	}
-	for i := start; i < end; i++ {
 		if i == cur {
-			b.WriteString("▶ ")
-		} else {
-			b.WriteString("　 ")
+			line = "▶ " + line
 		}
-		b.WriteString(strings.ReplaceAll(ld.Lyric[i].lineText(), "\n", " / "))
-		b.WriteString("\n")
+		nodes = append(nodes, message.CustomNode(nickname, selfID, line))
 	}
-	if end < len(ld.Lyric) {
-		b.WriteString("……\n")
-	}
-	if cur >= 0 {
-		b.WriteString(fmt.Sprintf("\n当前进度 %s / %s", fmtMs(np.Position), fmtMs(np.Track.Duration)))
-	}
-	return strings.TrimRight(b.String(), "\n"), nil
+	return nodes, nil
 }
