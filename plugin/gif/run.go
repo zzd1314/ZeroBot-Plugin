@@ -2,6 +2,8 @@
 package gif
 
 import (
+	"encoding/base64"
+	"os"
 	"strconv"
 	"strings"
 
@@ -165,6 +167,16 @@ func init() { // 插件主体
 		if err != nil {
 			ctx.SendChain(message.Text("ERROR: ", err))
 			return
+		}
+		// OneBot 端无法访问 bot 本地路径（file:// 会被解析成 /C:/... 导致 ENOENT），统一转为 base64 发送
+		if strings.HasPrefix(picurl, "file:///") {
+			var data []byte
+			data, err = os.ReadFile(strings.TrimPrefix(picurl, "file:///"))
+			if err != nil {
+				ctx.SendChain(message.Text("ERROR: ", err))
+				return
+			}
+			picurl = "base64://" + base64.StdEncoding.EncodeToString(data)
 		}
 		ctx.SendChain(message.Image(picurl))
 	})

@@ -11,6 +11,22 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// 素材源，按顺序依次尝试（主源失效时自动切换备用源）
+var materialURLs = [...]string{
+	`https://raw.githubusercontent.com/FloatTech/zbp-gif-materials/master/`,
+	`https://cdn.jsdelivr.net/gh/FloatTech/zbp-gif-materials@master/`,
+}
+
+func dlMaterial(name string) (data []byte, err error) {
+	for _, u := range materialURLs {
+		data, err = web.GetData(u + name)
+		if err == nil {
+			return data, nil
+		}
+	}
+	return nil, err
+}
+
 type context struct {
 	usrdir      string
 	headimgsdir []string
@@ -20,7 +36,7 @@ func dlchan(name string, s *string, wg *sync.WaitGroup, exit func(error)) {
 	defer wg.Done()
 	target := datapath + `materials/` + name
 	if file.IsNotExist(target) {
-		data, err := web.GetData(`https://gitea.seku.su/fumiama/ImageMaterials/raw/branch/master/` + name)
+		data, err := dlMaterial(name)
 		if err != nil {
 			_ = os.Remove(target)
 			exit(err)
@@ -48,7 +64,7 @@ func dlchan(name string, s *string, wg *sync.WaitGroup, exit func(error)) {
 func dlblock(name string) (string, error) {
 	target := datapath + `materials/` + name
 	if file.IsNotExist(target) {
-		data, err := web.GetData(`https://gitea.seku.su/fumiama/ImageMaterials/raw/branch/master/` + name)
+		data, err := dlMaterial(name)
 		if err != nil {
 			_ = os.Remove(target)
 			return "", err
