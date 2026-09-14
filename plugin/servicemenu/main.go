@@ -1253,7 +1253,8 @@ func loadUsageBg(dir string, portrait bool) image.Image {
 	if err != nil {
 		return nil
 	}
-	var matched, all []string
+	var matched []string
+	all := make([]string, 0, len(entries))
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
@@ -1327,10 +1328,8 @@ func drawUsageArt(c *gg.Context, cardW, cardH, fitW int) {
 		image.NewUniform(color.RGBA{R: 12, G: 14, B: 24, A: 120}),
 		image.Point{}, art, image.Point{}, draw.Src)
 	sil = imaging.Blur(sil, 9)
-	draw.DrawMask(dst, image.Rect(x0+5, y0+7, x0+5+w, y0+7+h),
-		sil, image.Point{}, nil, image.Point{}, draw.Over)
-	draw.DrawMask(dst, image.Rect(x0, y0, x0+w, y0+h),
-		art, image.Point{}, nil, image.Point{}, draw.Over)
+	draw.Draw(dst, image.Rect(x0+5, y0+7, x0+5+w, y0+7+h), sil, image.Point{}, draw.Over)
+	draw.Draw(dst, image.Rect(x0, y0, x0+w, y0+h), art, image.Point{}, draw.Over)
 }
 
 func encodePNG(img image.Image) ([]byte, error) {

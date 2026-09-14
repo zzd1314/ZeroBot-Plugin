@@ -1,4 +1,4 @@
-// badge.go 服务列表红点徽章：插件首次出现时自动打标（类手机 app 角标），
+// Package servicemenu 服务列表红点徽章：插件首次出现时自动打标（类手机 app 角标），
 // 持久化到 data/servicemenu/badges.json，可通过「清除红点」命令手动清除。
 //
 // 自动打标规则：

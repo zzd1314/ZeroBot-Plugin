@@ -45,28 +45,34 @@ type wsEvent struct {
 func wsLoop() {
 	for {
 		wsURL := strings.Replace(apiBase, "http", "ws", 1) + "/ws"
-		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+		// 长连接由 wsServe 的 ReadMessage 循环管理生命周期，bodyclose 无法跨函数跟踪
+		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil) //nolint:bodyclose
 		if err != nil {
 			time.Sleep(wsReconnect)
 			continue
 		}
 		logrus.Infoln("[splayer] 已连接 SPlayer-Next WebSocket:", wsURL)
-		for {
-			_, raw, err := conn.ReadMessage()
-			if err != nil {
-				logrus.Infoln("[splayer] SPlayer WebSocket 断开:", err)
-				break
-			}
-			var evt wsEvent
-			if json.Unmarshal(raw, &evt) != nil || evt.Kind != "event" || evt.Type != "track" {
-				continue
-			}
-			if evt.Data.Track != nil && evt.Data.Track.ID != "" {
-				appendTrack(*evt.Data.Track)
-			}
-		}
-		_ = conn.Close()
+		wsServe(conn)
 		time.Sleep(wsReconnect)
+	}
+}
+
+// wsServe 消费 WebSocket 事件直到连接断开（defer 关闭连接）
+func wsServe(conn *websocket.Conn) {
+	defer conn.Close()
+	for {
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
+			logrus.Infoln("[splayer] SPlayer WebSocket 断开:", err)
+			return
+		}
+		var evt wsEvent
+		if json.Unmarshal(raw, &evt) != nil || evt.Kind != "event" || evt.Type != "track" {
+			continue
+		}
+		if evt.Data.Track != nil && evt.Data.Track.ID != "" {
+			appendTrack(*evt.Data.Track)
+		}
 	}
 }
 

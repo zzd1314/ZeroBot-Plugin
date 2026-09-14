@@ -148,13 +148,13 @@ func init() {
 	engine.OnRegex(`^跳转\s*(\d{1,3}):([0-5]?\d)$`).SetBlock(true).
 		Handle(func(ctx *zero.Ctx) {
 			m := ctx.State["regex_matched"].([]string)
-			min, _ := strconv.Atoi(m[1])
+			minSec, _ := strconv.Atoi(m[1])
 			sec, _ := strconv.Atoi(m[2])
-			if err := seekTo(int64(min*60+sec) * 1000); err != nil {
+			if err := seekTo(int64(minSec*60+sec) * 1000); err != nil {
 				ctx.SendChain(message.Text("操作失败: ", err.Error()))
 				return
 			}
-			ctx.SendChain(message.Text(fmt.Sprintf("已跳转到 %02d:%02d", min, sec)))
+			ctx.SendChain(message.Text(fmt.Sprintf("已跳转到 %02d:%02d", minSec, sec)))
 		})
 
 	engine.OnRegex(`^跳转\s*(\d{1,3})\s*%$`).SetBlock(true).

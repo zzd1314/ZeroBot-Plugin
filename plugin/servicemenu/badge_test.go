@@ -6,6 +6,7 @@ package servicemenu
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 
 	"github.com/FloatTech/gg"
@@ -127,6 +128,7 @@ func TestUsageCommandRegex(t *testing.T) {
 		{"menuusage job", "job"},
 		{"menuusage  chat", "chat"},
 	}
+	usageNameRe := regexp.MustCompile(usageCmdPattern)
 	for _, tc := range cases {
 		m := usageNameRe.FindStringSubmatch(tc.in)
 		if m == nil {

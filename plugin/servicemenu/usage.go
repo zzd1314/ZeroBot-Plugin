@@ -1,4 +1,4 @@
-// usage.go 插件用法卡片：「/用法 <英文名>」查看插件详细使用说明。
+// Package servicemenu 插件用法卡片：「/用法 <英文名>」查看插件详细使用说明。
 //
 // 命令解析兼容：/用法 xxx、！用法 xxx、用法 xxx、全角空格、无空格、
 // 大小写混写，以及旧命令名「菜单用法 / menuusage」。
@@ -7,7 +7,6 @@
 package servicemenu
 
 import (
-	"regexp"
 	"strings"
 
 	"github.com/FloatTech/zbputils/control"
@@ -21,8 +20,6 @@ import (
 //   - 分隔：\s 不含全角空格，故显式加入　；允许无空格直连（用法splayer）
 //   - 参数：(\S+) 插件英文名（处理时统一 ToLower）
 const usageCmdPattern = `^(?:[/！!]?用法|菜单用法|menuusage)[\s　]*(\S+)$`
-
-var usageNameRe = regexp.MustCompile(usageCmdPattern)
 
 // usageSection 用法卡片分区：标题 + 正文（\n 分行，行宽超限时自动折行）
 type usageSection struct {
