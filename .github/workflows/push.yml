@@ -7,6 +7,8 @@ on:
       - 'v*'
 jobs:
   golangci:
+    # lint 已在 master push 时执行；tag push 只保留 Release，避免滚动版 golangci-lint 偶发红叉
+    if: ${{ github.ref == 'refs/heads/master' }}
     uses: ./.github/workflows/lib_lint.yml
     with:
       ref: master
