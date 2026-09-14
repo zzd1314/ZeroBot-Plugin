@@ -1,6 +1,6 @@
 <div align="center">
   <img src=".github/hua_nobg_512.gif" alt="椛" width = "256">
-  <img src="https://github.com/FloatTech/ZeroBot-Plugin/assets/41315874/93fb795d-e519-45a6-a654-076fd6ac54ae" alt="zbp-uwu" width = "400">
+  <img src=".github/zbp-uwu.png" alt="zbp-uwu" width = "400">
   <br>
 
   <h1>ZeroBot-Plugin</h1>
@@ -145,42 +145,6 @@ zerobot [-h] [-m] [-n nickname] [-t token] [-u url] [-g url] [-p prefix] [-d|w] 
   - [x] (默认禁用) /webui停止
 
   - [x] @Bot 插件冲突检测 (会在本群发送一条消息并在约 1s 后撤回以检测其它同类 bot 中已启用的插件并禁用)
-
-</details>
-<details>
-  <summary>服务菜单 (servicemenu)</summary>
-
-  - [x] /服务列表 (渲染全部插件列表长图, 无需 @Bot)
-
-  - [x] /服务列表 <页码>
-
-  - [x] /用法 <插件英文名> (渲染插件详细用法卡片, 如 /用法 splayer)
-
-  - [x] /切换用法横屏、/切换用法竖屏 (切换「用法」卡片的横屏/竖屏样式, 重启后恢复默认横屏)
-
-  - [x] 主题列表、主题 <主题名>、menu <编号> (切换服务列表卡片主题)
-
-</details>
-<details>
-  <summary>音乐播放器 (splayer)</summary>
-
-  控制 SPlayer-Next 音乐播放器 (需在播放器「设置 → 外部 API」开启并允许局域网访问), 命令均无需 @Bot:
-
-  - [x] 音乐播放 / 音乐暂停 / 音乐停止 / 音乐下一曲 / 音乐上一曲
-
-  - [x] 音乐状态 (返回专辑封面+可视化进度条+逐字歌词的渲染卡片)
-
-  - [x] 音乐歌词 (当前曲完整歌词)
-
-  - [x] 音乐列表 (合并转发本次会话播过的歌)
-
-  - [x] 切歌 <序号> (跳到列表第 N 首)
-
-  - [x] 音量 <0-100>
-
-  - [x] 跳转 <分:秒>、跳转 <百分比>% 或 跳转 <秒数>
-
-  - 注:「音乐列表/切歌」基于机器人在线期间记录的播放轨迹 (顺序播放模式最准确)
 
 </details>
 <details>
